@@ -68,6 +68,7 @@ substitutions:
 
 options:
   # Use high-performance machine for Yocto builds
+  logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_32'
   diskSizeGb: '500'
 
