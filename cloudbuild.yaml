@@ -1,29 +1,74 @@
 steps:
+  # Build the TDX image using the existing Makefile
   - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'make'
+    args:
+      - 'image-base'
+      - 'CVM_SERVICE_SRC_REV=${_ENTROPY_CORE_COMMIT}'
+      - 'CVM_SERVICE_SRC_BRANCH=${_ENTROPY_CORE_BRANCH}'
+    env:
+      - 'DOCKER_BUILDKIT=1'
+
+  # List the built artifacts (for verification)
+  - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "Creating file: itworks-${_TAG_NAME}.txt"
-        echo "${_TAG_NAME}" > itworks-${_TAG_NAME}.txt
-        echo "File created successfully!"
-        echo "Content of the file:"
-        cat itworks-${_TAG_NAME}.txt
+        echo "Built artifacts:"
+        ls -la reproducible-build/artifacts-base/
 
-  - name: 'gcr.io/cloud-builders/gsutil'
-    args:
-      - 'cp'
-      - 'itworks-${_TAG_NAME}.txt'
-      - 'gs://${_BUCKET_NAME}/itworks-${_TAG_NAME}.txt'
+        # Find the tarball (should be core-image-minimal-tdx-gcp.rootfs.wic.tar.gz)
+        TARBALL=$(find reproducible-build/artifacts-base/ -name "*.rootfs.wic.tar.gz" | head -1)
+        echo "Found tarball: $TARBALL"
 
-  # Verify the file was uploaded
+        # Store the tarball path for next steps
+        echo "$TARBALL" > /workspace/tarball_path.txt
+
+  # Upload tarball to Cloud Storage
   - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
     args:
-      - 'ls'
-      - 'gs://${_BUCKET_NAME}/'
+      - '-c'
+      - |
+        TARBALL=$(cat /workspace/tarball_path.txt)
+        TARBALL_NAME=$(basename "$TARBALL")
+
+        echo "Uploading $TARBALL to gs://${_BUCKET_NAME}/"
+        gsutil cp "$TARBALL" "gs://${_BUCKET_NAME}/${TARBALL_NAME%.tar.gz}-${BUILD_ID}.tar.gz"
+
+        # Store the GCS path for the next step
+        echo "gs://${_BUCKET_NAME}/${TARBALL_NAME%.tar.gz}-${BUILD_ID}.tar.gz" > /workspace/gcs_path.txt
+
+  # Create GCP compute image from the tarball
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        GCS_PATH=$(cat /workspace/gcs_path.txt)
+        IMAGE_NAME="entropy-tss-tdx-${BUILD_ID}"
+
+        echo "Creating GCP image: $IMAGE_NAME"
+        echo "From: $GCS_PATH"
+
+        gcloud compute images create "$IMAGE_NAME" \
+          --source-uri="$GCS_PATH" \
+          --guest-os-features=UEFI_COMPATIBLE,VIRTIO_SCSI_MULTIQUEUE,GVNIC,TDX_CAPABLE \
+          --description="TDX-enabled entropy-tss image built from commit ${_ENTROPY_CORE_COMMIT}" \
+          --family=entropy-tss-tdx
+
+        echo "Image created successfully: $IMAGE_NAME"
+        echo "Family: entropy-tss-tdx"
+
+substitutions:
+  _ENTROPY_CORE_COMMIT: 'master'
+  _ENTROPY_CORE_BRANCH: 'master'
+  _BUCKET_NAME: 'entropy-image-repository-yocto-build-artifacts'
 
 options:
-  logging: CLOUD_LOGGING_ONLY
-substitutions:
-  _TAG_NAME: 'default'
-  _BUCKET_NAME: 'entropy-image-repository-yocto-build-artifacts'
+  # Use high-performance machine for Yocto builds
+  machineType: 'E2_HIGHCPU_32'
+  diskSizeGb: '500'
+
+timeout: '14400s'  # 4 hours timeout for Yocto builds
