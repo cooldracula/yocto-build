@@ -9,8 +9,6 @@ steps:
         echo "File created successfully!"
         echo "Content of the file:"
         cat itworks-${_TAG_NAME}.txt
-        echo "Files in current directory:"
-        ls -la
 
   - name: 'gcr.io/cloud-builders/gsutil'
     args:
@@ -24,6 +22,8 @@ steps:
       - 'ls'
       - 'gs://${_BUCKET_NAME}/'
 
+options:
+  logging: CLOUD_LOGGING_ONLY
 substitutions:
   _TAG_NAME: 'default'
   _BUCKET_NAME: 'entropy-image-repository-yocto-build-artifacts'
