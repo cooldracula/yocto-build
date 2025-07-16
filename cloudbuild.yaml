@@ -1,0 +1,29 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Creating file: itworks-${_TAG_NAME}.txt"
+        echo "${_TAG_NAME}" > itworks-${_TAG_NAME}.txt
+        echo "File created successfully!"
+        echo "Content of the file:"
+        cat itworks-${_TAG_NAME}.txt
+        echo "Files in current directory:"
+        ls -la
+
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - 'cp'
+      - 'itworks-${_TAG_NAME}.txt'
+      - 'gs://${_BUCKET_NAME}/itworks-${_TAG_NAME}.txt'
+
+  # Verify the file was uploaded
+  - name: 'gcr.io/cloud-builders/gsutil'
+    args:
+      - 'ls'
+      - 'gs://${_BUCKET_NAME}/'
+
+substitutions:
+  _TAG_NAME: 'default'
+  _BUCKET_NAME: 'entropy-image-repository-yocto-build-artifacts'
